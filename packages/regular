@@ -7,12 +7,12 @@ linux-hardened
 linux-hardened-headers
 linux-lts
 linux-firmware
-intel-ucode
+amd-ucode
 mkinitcpio
 
 # Hardware acceleration
-mesa
-vulkan-intel
+nvidia-dkms
+nvidia-utils
 
 # Filesystem tools
 btrfs-progs
@@ -28,7 +28,7 @@ edk2-shell # useful EFI shell in case things go wrong
 
 # Networking
 dhcpcd
-iwd
+networkmanager
 iptables-nft # includes nftables as a dependency, will automatically uninstall iptables
 firefox
 wget
@@ -39,12 +39,12 @@ glider # used for the network opt-in security measure
 apparmor
 polkit
 keepassxc
-restic # backup
 
 # Virtualization/Containerization
 docker
 qemu-full
 virt-manager
+firejail
 
 # Monitoring
 audit # Log system failures and important security events
@@ -55,27 +55,13 @@ iotop
 lsof
 
 # Desktop environment
-sway
-swaylock
-swayidle
-swaybg
-kanshi # Monitors management
-xdg-desktop-portal-wlr # Enable screen sharing capabilites
-xdg-desktop-portal-gtk # File chooser and others
-flameshot # Take screenshots
-grim # flameshot dependency for Wayland
-wezterm # Terminal emulator
 wl-clipboard
-bemenu-wayland
-python-i3ipc # Interact with Sway using Python
-python-psutil # status-bar requirement
 libnotify # notify-send
 qt5-wayland
 qt6-wayland
-slurp # Select monitor region
-brightnessctl # Control monitor brightness
-gammastep # decrease blue light during the night
-playerctl # control various media players
+plasma-meta
+plasma-wayland-session
+sddm
 
 # Basic services
 pipewire
@@ -90,10 +76,6 @@ dbus-broker # Improved DBUS implementation (performance and security)
 ttf-fantasque-nerd
 noto-fonts-emoji
 terminus-font # TTY font
-
-# Themes
-arc-gtk-theme
-papirus-icon-theme
 
 # Dev
 neovim

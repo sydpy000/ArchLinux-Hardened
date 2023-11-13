@@ -92,6 +92,10 @@ lets_go=$(get_choice "Are you absolutely sure ?" "YOU ARE ABOUT TO ERASE EVERYTH
 clear
 [[ "$lets_go" == "No" ]] && exit 1
 
+luks_password=$(get_password "LUKS" "Enter password") || exit 1
+clear
+test -z "$luks_password" && echo >&2 "password cannot be empty" && exit 1
+
 hostname=$(get_input "Hostname" "Enter hostname") || exit 1
 clear
 test -z "$hostname" && echo >&2 "hostname cannot be empty" && exit 1
@@ -123,8 +127,8 @@ sgdisk --change-name=1:primary --change-name=2:ESP "${device}"
 }
 
 mkfs.vfat -n "EFI" -F 32 "${part_boot}"
-echo -n "$password" | cryptsetup luksFormat --label archlinux "${part_root}"
-echo -n "$password" | cryptsetup luksOpen "${part_root}" archlinux
+echo -n "$luks_password" | cryptsetup luksFormat --label archlinux "${part_root}"
+echo -n "$luks_password" | cryptsetup luksOpen "${part_root}" archlinux
 mkfs.btrfs --label archlinux /dev/mapper/archlinux
 
 # Create btrfs subvolumes
@@ -189,7 +193,6 @@ find rootfs -type f -exec bash -c 'file="$1"; dest="/mnt/${file#rootfs/}"; mkdir
 sed -i "s/#Color/Color/g" /mnt/etc/pacman.conf
 
 # Patch placeholders from config files
-sed -i "s/username_placeholder/$user/g" /mnt/etc/systemd/system/getty@tty1.service.d/autologin.conf
 sed -i "s/username_placeholder/$user/g" /mnt/etc/libvirt/qemu.conf
 
 # Set the very fast dash in place of sh
@@ -220,12 +223,15 @@ ln -sfT dash /mnt/usr/bin/sh
 	# Increase default log size
 	echo -n " audit_backlog_limit=16384"
 
+	# NVIDIA DRM kernel mode setting
+	echo -n " nvidia_drm.modeset=1 nvidia_drm.fbdev=1"
+
 	# Completely quiet the boot process to display some eye candy using plymouth instead :)
 	echo -n " quiet splash rd.udev.log_level=3"
 } >/mnt/etc/kernel/cmdline
 
 echo "FONT=$font" >/mnt/etc/vconsole.conf
-echo "KEYMAP=fr-latin1" >>/mnt/etc/vconsole.conf
+echo "KEYMAP=us" >>/mnt/etc/vconsole.conf
 
 echo "${hostname}" >/mnt/etc/hostname
 echo "en_US.UTF-8 UTF-8" >>/mnt/etc/locale.gen
@@ -234,10 +240,6 @@ ln -sf /usr/share/zoneinfo/Europe/Paris /mnt/etc/localtime
 arch-chroot /mnt locale-gen
 
 genfstab -U /mnt >>/mnt/etc/fstab
-
-# For a smoother transition between Plymouth and Sway
-touch /mnt/etc/hushlogins
-sed -i 's/HUSHLOGIN_FILE.*/#\0/g' /etc/login.defs
 
 # Creating user
 arch-chroot /mnt useradd -m -s /bin/sh "$user" # keep a real POSIX shell as default, not zsh, that will come later
@@ -250,9 +252,6 @@ echo "$user:$password" | arch-chroot /mnt chpasswd
 # Temporarly give sudo NOPASSWD rights to user for yay
 echo "$user ALL=(ALL) NOPASSWD:ALL" >>"/mnt/etc/sudoers"
 
-# Temporarly disable pacman wrapper so that no warning is issued
-mv /mnt/usr/local/bin/pacman /mnt/usr/local/bin/pacman.disable
-
 # Install AUR helper
 arch-chroot -u "$user" /mnt /bin/bash -c 'mkdir /tmp/yay.$$ && \
                                           cd /tmp/yay.$$ && \
@@ -262,25 +261,14 @@ arch-chroot -u "$user" /mnt /bin/bash -c 'mkdir /tmp/yay.$$ && \
 # Install AUR packages
 grep -o '^[^ *#]*' packages/aur | HOME="/home/$user" arch-chroot -u "$user" /mnt /usr/bin/yay --noconfirm -Sy -
 
-# Restore pacman wrapper
-mv /mnt/usr/local/bin/pacman.disable /mnt/usr/local/bin/pacman
-
 # Remove sudo NOPASSWD rights from user
 sed -i '$ d' /mnt/etc/sudoers
 
-# WARNING: using plymouth is not ideal since its code run early at boot
-#          and can be the source of high privilege vulnerabilities.
-#          But hey, security is always a matter of compromise. And I like some
-#          eye candy, so I made my choice :)
-#
-# You can choose your own theme from there: https://github.com/adi1090x/plymouth-themes
-arch-chroot /mnt plymouth-set-default-theme colorful_loop
-
 cat <<EOF >/mnt/etc/mkinitcpio.conf
-MODULES=(i915)
+MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)
 BINARIES=(setfont)
 FILES=()
-HOOKS=(base consolefont keymap udev autodetect modconf block plymouth encrypt filesystems keyboard)
+HOOKS=(base consolefont keymap udev autodetect modconf block encrypt filesystems keyboard)
 EOF
 
 # This must be done after plymouth is installed from the AUR
@@ -299,7 +287,7 @@ arch-chroot /mnt systemctl enable systemd-timesyncd
 arch-chroot /mnt systemctl enable getty@tty1
 arch-chroot /mnt systemctl enable dbus-broker
 arch-chroot /mnt systemctl enable dhcpcd
-arch-chroot /mnt systemctl enable iwd
+arch-chroot /mnt systemctl enable NetworkManager
 arch-chroot /mnt systemctl enable auditd
 arch-chroot /mnt systemctl enable nftables
 arch-chroot /mnt systemctl enable docker
@@ -308,6 +296,7 @@ arch-chroot /mnt systemctl enable check-secure-boot
 arch-chroot /mnt systemctl enable apparmor
 arch-chroot /mnt systemctl enable auditd-notify
 arch-chroot /mnt systemctl enable local-forwarding-proxy
+arch-chroot /mnt systemctl enable sddm
 
 # Configure systemd timers
 arch-chroot /mnt systemctl enable snapper-timeline.timer
@@ -325,9 +314,8 @@ arch-chroot /mnt systemctl --global enable dbus-broker
 arch-chroot /mnt systemctl --global enable journalctl-notify
 arch-chroot /mnt systemctl --global enable pipewire
 arch-chroot /mnt systemctl --global enable wireplumber
-arch-chroot /mnt systemctl --global enable gammastep
 
-# Run userspace configuration
-HOME="/home/$user" arch-chroot -u "$user" /mnt /bin/bash -c 'cd && \
-                                                             git clone https://github.com/ShellCode33/.dotfiles && \
-                                                             .dotfiles/install.sh'
+# Firejail hardening
+arch-chroot /mnt groupadd firejail
+arch-chroot /mnt apparmor_parser -r /etc/apparmor.d/firejail-default
+
