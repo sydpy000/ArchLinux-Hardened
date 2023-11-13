@@ -285,7 +285,6 @@ arch-chroot /mnt passwd -dl root
 # Configure systemd services
 arch-chroot /mnt systemctl enable systemd-timesyncd
 arch-chroot /mnt systemctl enable getty@tty1
-arch-chroot /mnt systemctl enable dbus-brokr
 arch-chroot /mnt systemctl enable NetworkManager
 arch-chroot /mnt systemctl enable auditd
 arch-chroot /mnt systemctl enable nftables
